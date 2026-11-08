@@ -29,6 +29,17 @@ public final class CommentsInfo extends ListInfo<CommentsInfoItem> {
         return getInfo(service.getCommentsExtractor(url));
     }
 
+    /**
+     * Loads comments in the requested order. A null or empty filter keeps the default order.
+     *
+     * @param sortFilter one of the service's available comments sort filters
+     */
+    public static CommentsInfo getInfo(final StreamingService service, final String url,
+                                       final String sortFilter)
+            throws ExtractionException, IOException {
+        return getInfo(service.getCommentsExtractor(url, sortFilter));
+    }
+
     public static CommentsInfo getInfo(final CommentsExtractor commentsExtractor)
             throws IOException, ExtractionException {
         // for services which do not have a comments extractor
@@ -62,7 +73,7 @@ public final class CommentsInfo extends ListInfo<CommentsInfoItem> {
     public static InfoItemsPage<CommentsInfoItem> getMoreItems(
             final CommentsInfo commentsInfo,
             final Page page) throws ExtractionException, IOException {
-        return getMoreItems(NewPipe.getService(commentsInfo.getServiceId()), commentsInfo.getUrl(),
+        return getMoreItems(NewPipe.getService(commentsInfo.getServiceId()), commentsInfo,
                 page);
     }
 
@@ -70,7 +81,8 @@ public final class CommentsInfo extends ListInfo<CommentsInfoItem> {
             final StreamingService service,
             final CommentsInfo commentsInfo,
             final Page page) throws IOException, ExtractionException {
-        return getMoreItems(service, commentsInfo.getUrl(), page);
+        return service.getCommentsExtractor(commentsInfo.getUrl(), commentsInfo.getSortFilter())
+                .getPage(page);
     }
 
     public static InfoItemsPage<CommentsInfoItem> getMoreItems(

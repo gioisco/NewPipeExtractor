@@ -14,6 +14,7 @@ import org.schabi.newpipe.extractor.exceptions.ParsingException;
 import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler;
 import org.schabi.newpipe.extractor.localization.Localization;
 import org.schabi.newpipe.extractor.localization.TimeAgoParser;
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeCommentsLinkHandlerFactory;
 import org.schabi.newpipe.extractor.utils.JsonUtils;
 import org.schabi.newpipe.extractor.utils.Utils;
 
@@ -40,9 +41,13 @@ public class YoutubeCommentsExtractor extends CommentsExtractor {
     private boolean commentsDisabled;
 
     /**
-     * The second ajax <b>/next</b> response.
+     * The <b>/next</b> response containing comments in the requested order.
      */
     private JsonObject ajaxJson;
+
+    // Sort continuations may omit the header, so retain the initial comment count.
+    @Nullable
+    private JsonObject commentsHeader;
 
     /**
      * Live chat continuation token, used when regular comments are disabled.
@@ -351,6 +356,12 @@ public class YoutubeCommentsExtractor extends CommentsExtractor {
     @Override
     public void onFetchPage(@Nonnull final Downloader downloader)
             throws IOException, ExtractionException {
+        final String sortFilter = getLinkHandler().getSortFilter();
+        if (!isNullOrEmpty(sortFilter)
+                && !YoutubeCommentsLinkHandlerFactory.TOP.equals(sortFilter)
+                && !YoutubeCommentsLinkHandlerFactory.NEWEST.equals(sortFilter)) {
+            throw new IllegalArgumentException("Unsupported comments sort filter: " + sortFilter);
+        }
         final Localization localization = getExtractorLocalization();
         // @formatter:off
         final byte[] body = JsonWriter.string(
@@ -376,6 +387,72 @@ public class YoutubeCommentsExtractor extends CommentsExtractor {
         // @formatter:on
 
         ajaxJson = getJsonPostResponse("next", ajaxBody, localization);
+        commentsHeader = findCommentsHeader(ajaxJson);
+
+        if (isNullOrEmpty(sortFilter)) {
+            return;
+        }
+
+        final int sortIndex = YoutubeCommentsLinkHandlerFactory.NEWEST.equals(sortFilter) ? 1 : 0;
+        final JsonArray sortItems = commentsHeader == null ? new JsonArray()
+                : commentsHeader.getObject("sortMenu").getObject("sortFilterSubMenuRenderer")
+                        .getArray("subMenuItems");
+        // YouTube's menu lists Top comments first and Newest first second, regardless of locale.
+        JsonObject sortItem = findSortItem(sortItems, sortIndex);
+        if (sortItem == null) {
+            sortItem = findSortItem(findPanelSortItems(nextResponse), sortIndex);
+        }
+        if (sortItem == null) {
+            throw new ParsingException("Could not get comments sort token: " + sortFilter);
+        }
+        final String sortToken = sortItem.getObject("serviceEndpoint")
+                .getObject("continuationCommand").getString("token");
+        if (!sortItem.getBoolean("selected")) {
+            final byte[] sortedBody = JsonWriter.string(
+                    prepareDesktopJsonBuilder(localization, getExtractorContentCountry())
+                            .value("continuation", sortToken).done())
+                    .getBytes(StandardCharsets.UTF_8);
+            ajaxJson = getJsonPostResponse("next", sortedBody, localization);
+        }
+    }
+
+    @Nullable
+    private JsonObject findSortItem(final JsonArray sortItems, final int sortIndex) {
+        if (sortItems.size() <= sortIndex) {
+            return null;
+        }
+        final JsonObject sortItem = sortItems.getObject(sortIndex);
+        return isNullOrEmpty(sortItem.getObject("serviceEndpoint")
+                .getObject("continuationCommand").getString("token")) ? null : sortItem;
+    }
+
+    @Nullable
+    private JsonObject findCommentsHeader(final JsonObject response) {
+        for (final JsonObject endpoint : response.getArray("onResponseReceivedEndpoints")
+                .streamAsJsonObjects().toList()) {
+            final JsonObject command = endpoint.getObject("reloadContinuationItemsCommand",
+                    endpoint.getObject("appendContinuationItemsAction"));
+            for (final JsonObject item : command.getArray("continuationItems")
+                    .streamAsJsonObjects().toList()) {
+                if (item.has("commentsHeaderRenderer")) {
+                    return item.getObject("commentsHeaderRenderer");
+                }
+            }
+        }
+        return null;
+    }
+
+    private JsonArray findPanelSortItems(final JsonObject response) {
+        for (final JsonObject panel : response.getArray("engagementPanels")
+                .streamAsJsonObjects().toList()) {
+            final JsonObject renderer = panel.getObject("engagementPanelSectionListRenderer");
+            if ("engagement-panel-comments-section".equals(renderer.getString("panelIdentifier"))) {
+                return renderer.getObject("header").getObject("engagementPanelTitleHeaderRenderer")
+                        .getObject("menu").getObject("sortFilterSubMenuRenderer")
+                        .getArray("subMenuItems");
+            }
+        }
+        return new JsonArray();
     }
 
     /**
@@ -490,15 +567,8 @@ public class YoutubeCommentsExtractor extends CommentsExtractor {
             return -1;
         }
 
-        final JsonObject countText = ajaxJson.getArray("onResponseReceivedEndpoints")
-                .getObject(0)
-                .getObject("reloadContinuationItemsCommand")
-                .getArray("continuationItems")
-                .getObject(0)
-                .getObject("commentsHeaderRenderer")
-                .getObject("countText");
-
         try {
+            final JsonObject countText = commentsHeader.getObject("countText");
             return Integer.parseInt(
                     Utils.removeNonDigitCharacters(getTextFromObject(countText))
             );

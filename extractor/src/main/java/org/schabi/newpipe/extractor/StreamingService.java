@@ -311,6 +311,30 @@ public abstract class StreamingService {
         return getCommentsExtractor(listLinkHandlerFactory.fromUrl(url));
     }
 
+    /**
+     * Creates a comments extractor using one of the service's available sort filters.
+     *
+     * @param sortFilter a value from
+     *                   {@link ListLinkHandlerFactory#getAvailableSortFilter()}, or null/empty
+     *                   to keep the service's default order
+     */
+    public CommentsExtractor getCommentsExtractor(final String url, final String sortFilter)
+            throws ExtractionException {
+        if (Utils.isNullOrEmpty(sortFilter)) {
+            return getCommentsExtractor(url);
+        }
+        final ListLinkHandlerFactory factory = getCommentsLHFactory();
+        if (factory == null) {
+            return null;
+        }
+        if (!List.of(factory.getAvailableSortFilter()).contains(sortFilter)) {
+            throw new IllegalArgumentException("Unsupported comments sort filter: " + sortFilter);
+        }
+        final ListLinkHandler handler = factory.fromUrl(url);
+        return getCommentsExtractor(new ListLinkHandler(handler.getOriginalUrl(), handler.getUrl(),
+                handler.getId(), handler.getContentFilters(), sortFilter));
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
     // Utils
     //////////////////////////////////////////////////////////////////////////*/

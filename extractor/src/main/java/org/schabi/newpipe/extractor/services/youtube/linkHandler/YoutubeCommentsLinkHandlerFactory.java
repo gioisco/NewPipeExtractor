@@ -8,6 +8,9 @@ import java.util.List;
 
 public final class YoutubeCommentsLinkHandlerFactory extends ListLinkHandlerFactory {
 
+    public static final String TOP = "top";
+    public static final String NEWEST = "newest";
+
     private static final YoutubeCommentsLinkHandlerFactory INSTANCE
             = new YoutubeCommentsLinkHandlerFactory();
 
@@ -47,6 +50,15 @@ public final class YoutubeCommentsLinkHandlerFactory extends ListLinkHandlerFact
                          final List<String> contentFilter,
                          final String sortFilter)
             throws ParsingException, UnsupportedOperationException {
+        if (sortFilter != null && !sortFilter.isEmpty()
+                && !TOP.equals(sortFilter) && !NEWEST.equals(sortFilter)) {
+            throw new IllegalArgumentException("Unsupported comments sort filter: " + sortFilter);
+        }
         return getUrl(id);
+    }
+
+    @Override
+    public String[] getAvailableSortFilter() {
+        return new String[]{TOP, NEWEST};
     }
 }
